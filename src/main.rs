@@ -6,28 +6,27 @@ use oauth2::ClientId;
 #[derive(Debug, Parser)]
 #[clap(version)]
 struct Args {
-    #[clap(long)]
+    #[clap(long, required = true, help = "An Azure tenant ID")]
     tenant: String,
-    #[clap(long)]
+    #[clap(long, required = true, help = "An Azure client ID")]
     client: String,
-    #[clap(long = "scope", required = true)]
+    #[clap(long = "scope", required = true, help = "Azure scopes")]
     scopes: Vec<String>,
 }
 
-
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     let Args{ tenant, client, scopes } = Args::parse();
 
     let reqwest_client = reqwest::Client::new();
     let client_id = ClientId::new(client);
-    let scopes = scopes.iter().map(String::as_str).collect::<Vec<&str>>();
+    let scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
 
-    let device_code = device_code_flow::start(&reqwest_client, tenant, &client_id, scopes.as_slice()).await?;
+    let phase_one = device_code_flow::start(&reqwest_client, tenant, &client_id, scopes.as_slice()).await?;
 
-    println!("{}", device_code.message());
+    println!("{}", phase_one.message());
 
-    let mut responses = Box::pin(device_code.stream());
+    let mut responses = Box::pin(phase_one.stream());
     while let Some(response) = responses.next().await {
         let response = response?;
         match response {

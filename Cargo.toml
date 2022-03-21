@@ -10,6 +10,7 @@ name = "auth"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.56"
 azure_identity = "0.1.1"
 clap = { version = "3.1.6", features = ["derive"] }
 futures = "0.3.21"
