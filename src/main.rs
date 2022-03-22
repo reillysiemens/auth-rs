@@ -21,9 +21,8 @@ struct Args {
 enum DeviceCodeError {
     #[error("Error starting device code flow phase one")]
     PhaseOneError(#[from] device_code_flow::DeviceCodeError),
-
-    #[error("Error waiting for user to auth")]
-    WaitingError,
+    #[error("Device flow stream terminated early")]
+    EarlyTermination,
 }
 
 async fn device_code_flow(
@@ -44,21 +43,9 @@ async fn device_code_flow(
         if let DeviceCodeResponse::AuthorizationSucceeded(authorization_code) = response {
             return Ok(authorization_code);
         }
-
-        if let DeviceCodeResponse::AuthorizationPending(DeviceCodeErrorResponse {
-            error,
-            error_description,
-            error_uri,
-        }) = response
-        {
-            println!("PENDING...");
-            println!("{error}");
-            println!("{error_description}");
-            println!("{error_uri}");
-        }
     }
 
-    Err(DeviceCodeError::WaitingError)
+    Err(DeviceCodeError::EarlyTermination)
 }
 
 #[tokio::main]
