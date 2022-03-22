@@ -52,6 +52,7 @@ dependencies = [
  "futures",
  "oauth2",
  "reqwest",
+ "thiserror",
  "tokio",
 ]
 
