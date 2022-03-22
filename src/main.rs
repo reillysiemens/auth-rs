@@ -73,7 +73,12 @@ async fn main() -> anyhow::Result<()> {
     let client = ClientId::new(client);
     let scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
 
+    // Check for valid token in cache
+
+    // nothing in cache - do auth
     let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
+    // write to cache
+
     println!("Access Token: {:?}", auth_code.access_token());
     println!("Good for about: {:?} minutes", auth_code.expires_in / 60);
 
