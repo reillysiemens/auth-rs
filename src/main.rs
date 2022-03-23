@@ -1,3 +1,5 @@
+mod cache;
+
 use azure_identity::device_code_flow::{
     self, DeviceCodeAuthorization, DeviceCodeErrorResponse, DeviceCodeResponse,
 };
@@ -5,6 +7,7 @@ use clap::Parser;
 use futures::StreamExt;
 use oauth2::ClientId;
 use thiserror::Error;
+use windows::Security::Cryptography::{DataProtection::DataProtectionProvider, CryptographicBuffer, BinaryStringEncoding};
 
 #[derive(Debug, Parser)]
 #[clap(version)]
@@ -48,6 +51,9 @@ async fn device_code_flow(
     Err(DeviceCodeError::EarlyTermination)
 }
 
+/*
+*/
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let Args {
@@ -60,14 +66,40 @@ async fn main() -> anyhow::Result<()> {
     let client = ClientId::new(client);
     let scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
 
-    // Check for valid token in cache
+    let cache = cache::Cache::new("example.cache");
+    let provider = DataProtectionProvider::CreateOverloadExplicit("LOCAL=user")?;
 
-    // nothing in cache - do auth
-    let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
-    // write to cache
+    let token = match cache.get().await {
+        Ok(data) => {
+            println!("Cache hit.");
 
-    println!("Access Token: {:?}", auth_code.access_token());
-    println!("Good for about: {:?} minutes", auth_code.expires_in / 60);
+            let data = std::str::from_utf8(&data)?;
+            let buffer = CryptographicBuffer::ConvertStringToBinary(data, BinaryStringEncoding::Utf8)?;
+            let unprotected = provider.UnprotectAsync(buffer)?.get()?;
+            let message = CryptographicBuffer::ConvertBinaryToString(BinaryStringEncoding::Utf8, unprotected)?;
+
+            message.to_string()
+        },
+        Err(_) => {
+            println!("Cache miss.");
+
+            let data = "something is here";
+
+            let buffer = CryptographicBuffer::ConvertStringToBinary(data, BinaryStringEncoding::Utf8)?;
+            let protected = provider.ProtectAsync(buffer)?.get()?;
+            let message = CryptographicBuffer::ConvertBinaryToString(BinaryStringEncoding::Utf8, protected)?;
+            cache.put(message.to_string().into_bytes()).await?;
+
+            data.to_string()
+        },
+    };
+
+    println!("{token:#?}");
+
+    // let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
+
+    // println!("Access Token: {:?}", auth_code.access_token());
+    // println!("Good for about: {:?} minutes", auth_code.expires_in / 60);
 
     Ok(())
 }
