@@ -66,37 +66,24 @@ async fn main() -> anyhow::Result<()> {
     let client = ClientId::new(client);
     let scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
 
-    let cache = cache::Cache::new("example.cache");
+    let cache = cache::EncryptedCache::new("example.cache");
     let provider = DataProtectionProvider::CreateOverloadExplicit("LOCAL=user")?;
 
     let token = match cache.get().await {
         Ok(data) => {
             println!("Cache hit.");
-
-            let data = std::str::from_utf8(&data)?;
-            let buffer = CryptographicBuffer::ConvertStringToBinary(data, BinaryStringEncoding::Utf8)?;
-            let unprotected = provider.UnprotectAsync(buffer)?.get()?;
-            let message = CryptographicBuffer::ConvertBinaryToString(BinaryStringEncoding::Utf8, unprotected)?;
-
-            message.to_string()
+            data
         },
         Err(_) => {
             println!("Cache miss.");
-
+            // let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
             let data = "something is here";
-
-            let buffer = CryptographicBuffer::ConvertStringToBinary(data, BinaryStringEncoding::Utf8)?;
-            let protected = provider.ProtectAsync(buffer)?.get()?;
-            let message = CryptographicBuffer::ConvertBinaryToString(BinaryStringEncoding::Utf8, protected)?;
-            cache.put(message.to_string().into_bytes()).await?;
-
+            cache.put(data).await?;
             data.to_string()
         },
     };
 
     println!("{token:#?}");
-
-    // let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
 
     // println!("Access Token: {:?}", auth_code.access_token());
     // println!("Good for about: {:?} minutes", auth_code.expires_in / 60);
