@@ -67,7 +67,6 @@ async fn main() -> anyhow::Result<()> {
     let scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
 
     let cache = cache::EncryptedCache::new("example.cache");
-    let provider = DataProtectionProvider::CreateOverloadExplicit("LOCAL=user")?;
 
     let token = match cache.get().await {
         Ok(data) => {
@@ -76,14 +75,14 @@ async fn main() -> anyhow::Result<()> {
         },
         Err(_) => {
             println!("Cache miss.");
-            // let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
-            let data = "something is here";
-            cache.put(data).await?;
-            data.to_string()
+            let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
+            let access_token = auth_code.access_token().secret();
+            cache.put(access_token.as_str()).await?;
+            access_token.clone()
         },
     };
 
-    println!("{token:#?}");
+    println!("{token}");
 
     // println!("Access Token: {:?}", auth_code.access_token());
     // println!("Good for about: {:?} minutes", auth_code.expires_in / 60);
