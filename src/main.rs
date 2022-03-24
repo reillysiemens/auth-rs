@@ -1,7 +1,13 @@
-use azure_identity::device_code_flow::{self, DeviceCodeResponse, DeviceCodeErrorResponse};
+mod cache;
+
+use azure_identity::device_code_flow::{
+    self, DeviceCodeAuthorization, DeviceCodeErrorResponse, DeviceCodeResponse,
+};
 use clap::Parser;
 use futures::StreamExt;
 use oauth2::ClientId;
+use thiserror::Error;
+use windows::Security::Cryptography::{DataProtection::DataProtectionProvider, CryptographicBuffer, BinaryStringEncoding};
 
 #[derive(Debug, Parser)]
 #[clap(version)]
@@ -14,42 +20,72 @@ struct Args {
     scopes: Vec<String>,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let Args{ tenant, client, scopes } = Args::parse();
+#[derive(Debug, Error)]
+enum DeviceCodeError {
+    #[error("Error starting device code flow phase one")]
+    PhaseOneError(#[from] device_code_flow::DeviceCodeError),
+    #[error("Device flow stream terminated early")]
+    EarlyTermination,
+}
 
-    let reqwest_client = reqwest::Client::new();
-    let client_id = ClientId::new(client);
-    let scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
-
-    let phase_one = device_code_flow::start(&reqwest_client, tenant, &client_id, scopes.as_slice()).await?;
+async fn device_code_flow(
+    http_client: &reqwest::Client,
+    client: &ClientId,
+    tenant: &String,
+    scopes: Vec<&str>,
+) -> Result<DeviceCodeAuthorization, DeviceCodeError> {
+    let phase_one = device_code_flow::start(http_client, tenant, client, scopes.as_slice()).await?;
 
     println!("{}", phase_one.message());
 
     let mut responses = Box::pin(phase_one.stream());
+
     while let Some(response) = responses.next().await {
         let response = response?;
-        match response {
-            DeviceCodeResponse::AuthorizationSucceeded(success) => {
-                let token = success.access_token();
 
-                println!("SUCCESS!");
-                println!("{token:?}");
-
-                break;
-            },
-            DeviceCodeResponse::AuthorizationPending(pending) => {
-                let DeviceCodeErrorResponse { error, error_description, error_uri } = pending;
-
-                println!("PENDING...");
-                println!("{error}");
-                println!("{error_description}");
-                println!("{error_uri}");
-
-                continue;
-            }
+        if let DeviceCodeResponse::AuthorizationSucceeded(authorization_code) = response {
+            return Ok(authorization_code);
         }
     }
+
+    Err(DeviceCodeError::EarlyTermination)
+}
+
+/*
+*/
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let Args {
+        tenant,
+        client,
+        scopes,
+    } = Args::parse();
+
+    let http_client = reqwest::Client::new();
+    let client = ClientId::new(client);
+    let scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
+
+    let cache = cache::EncryptedCache::new("example.cache");
+
+    let token = match cache.get().await {
+        Ok(data) => {
+            println!("Cache hit.");
+            data
+        },
+        Err(_) => {
+            println!("Cache miss.");
+            let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
+            let access_token = auth_code.access_token().secret();
+            cache.put(access_token.as_str()).await?;
+            access_token.clone()
+        },
+    };
+
+    println!("{token}");
+
+    // println!("Access Token: {:?}", auth_code.access_token());
+    // println!("Good for about: {:?} minutes", auth_code.expires_in / 60);
 
     Ok(())
 }
