@@ -1,13 +1,12 @@
 mod cache;
+mod jwt;
 
-use azure_identity::device_code_flow::{
-    self, DeviceCodeAuthorization, DeviceCodeErrorResponse, DeviceCodeResponse,
-};
+use azure_identity::device_code_flow::{self, DeviceCodeAuthorization, DeviceCodeResponse};
 use clap::Parser;
+use console::style;
 use futures::StreamExt;
 use oauth2::ClientId;
 use thiserror::Error;
-use windows::Security::Cryptography::{DataProtection::DataProtectionProvider, CryptographicBuffer, BinaryStringEncoding};
 
 #[derive(Debug, Parser)]
 #[clap(version)]
@@ -51,41 +50,30 @@ async fn device_code_flow(
     Err(DeviceCodeError::EarlyTermination)
 }
 
-/*
-*/
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let Args {
-        tenant,
-        client,
-        scopes,
-    } = Args::parse();
+    let args = Args::parse();
 
     let http_client = reqwest::Client::new();
-    let client = ClientId::new(client);
-    let scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
+    let client = ClientId::new(args.client);
+    let scopes: Vec<&str> = args.scopes.iter().map(String::as_str).collect();
 
     let cache = cache::EncryptedCache::new("example.cache");
 
     let token = match cache.get().await {
-        Ok(data) => {
-            println!("Cache hit.");
-            data
-        },
+        Ok(data) => data,
         Err(_) => {
-            println!("Cache miss.");
-            let auth_code = device_code_flow(&http_client, &client, &tenant, scopes).await?;
+            let auth_code = device_code_flow(&http_client, &client, &args.tenant, scopes).await?;
             let access_token = auth_code.access_token().secret();
             cache.put(access_token.as_str()).await?;
             access_token.clone()
-        },
+        }
     };
 
-    println!("{token}");
-
-    // println!("Access Token: {:?}", auth_code.access_token());
-    // println!("Good for about: {:?} minutes", auth_code.expires_in / 60);
+    // Note: This can fail if the token signature has expired. This would be an excellent place to attempt a silent
+    // exchange of a refresh token for a new access token.
+    let name = jwt::name(token)?;
+    println!("{}", style(format!("Token cache warm for {name}")).green());
 
     Ok(())
 }
